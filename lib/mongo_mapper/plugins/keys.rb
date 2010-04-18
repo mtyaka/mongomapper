@@ -7,6 +7,7 @@ module MongoMapper
 
       module ClassMethods
         def inherited(descendant)
+          key :_type, String unless keys.keys.include?(:_type)
           descendant.instance_variable_set(:@keys, keys.dup)
           super
         end
@@ -146,15 +147,8 @@ module MongoMapper
 
       module InstanceMethods
         def initialize(attrs={}, from_database=false)
-          unless attrs.nil?
-            provided_keys = attrs.keys.map { |k| k.to_s }
-            unless provided_keys.include?('_id') || provided_keys.include?('id')
-              write_key :_id, Mongo::ObjectID.new
-            end
-          end
-
-          assign_type_if_present
-
+          default_id_value(attrs)
+          
           if from_database
             @new = false
             self.attributes = attrs
@@ -162,15 +156,17 @@ module MongoMapper
             @new = true
             assign(attrs)
           end
+          
+          assign_type
         end
 
-        def new?
-          @new
+        def persisted?
+          !new? && !destroyed?
         end
 
         def attributes=(attrs)
           return if attrs.blank?
-          
+
           attrs.each_pair do |name, value|
             writer_method = "#{name}="
 
@@ -217,10 +213,10 @@ module MongoMapper
         def id
           _id
         end
-        
+
         def id=(value)
           if self.class.using_object_id?
-            value = MongoMapper.normalize_object_id(value)
+            value = ObjectId.to_mongo(value)
           end
 
           self[:_id] = value
@@ -235,31 +231,36 @@ module MongoMapper
           write_key(name, value)
         end
 
-        # @api public
         def keys
           self.class.keys
         end
 
-        # @api private?
         def key_names
           keys.keys
         end
 
-        # @api private?
         def non_embedded_keys
           keys.values.select { |key| !key.embeddable? }
         end
 
-        # @api private?
         def embedded_keys
           keys.values.select { |key| key.embeddable? }
         end
 
         private
-          def assign_type_if_present
+          def default_id_value(attrs)
+            unless attrs.nil?
+              provided_keys = attrs.keys.map { |k| k.to_s }
+              unless provided_keys.include?('_id') || provided_keys.include?('id')
+                write_key :_id, Mongo::ObjectID.new
+              end
+            end
+          end
+
+          def assign_type
             self._type = self.class.name if respond_to?(:_type=)
           end
-          
+
           def ensure_key_exists(name)
             self.class.key(name) unless respond_to?("#{name}=")
           end
@@ -280,11 +281,16 @@ module MongoMapper
 
           def write_key(name, value)
             key = keys[name]
+
+            if key.embeddable? && value.is_a?(key.type)
+              value._parent_document = self
+            end
+
             instance_variable_set "@#{name}_before_typecast", value
             instance_variable_set "@#{name}", key.set(value)
           end
       end
-      
+
       class Key
         attr_accessor :name, :type, :options, :default_value
 
@@ -309,7 +315,11 @@ module MongoMapper
 
         def get(value)
           if value.nil? && !default_value.nil?
-            return default_value
+            if default_value.respond_to?(:call)
+              return default_value.call
+            else
+              return default_value
+            end
           end
 
           type.from_mongo(value)

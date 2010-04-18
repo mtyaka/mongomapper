@@ -1,18 +1,13 @@
+# Make sure you have the following libs in your load path or you could have issues:
+#   gem 'activesupport', '>= 2.3.4'
+#   gem 'mongo', '0.19.3'
+#   gem 'jnunemaker-validatable', '1.8.3'
+# gem 'activesupport', '= 2.3.4'
 require 'set'
-
-# if Gem is defined i'll assume you are using rubygems and lock specific versions
-# call me crazy but a plain old require will just get the latest version you have installed
-# so i want to make sure that if you are using gems you do in fact have the correct versions
-# if there is a better way to do this, please enlighten me!
-if self.class.const_defined?(:Gem)
-  gem 'activesupport', '>= 2.3'
-  gem 'mongo', '0.18.3'
-  gem 'jnunemaker-validatable', '1.8.1'
-end
-
-require 'active_support'
+require 'uri'
 require 'mongo'
 require 'validatable'
+require 'active_support/all'
 
 module MongoMapper
   # generic MM error
@@ -23,6 +18,9 @@ module MongoMapper
 
   # raised when document expected but not found
   class DocumentNotFound < MongoMapperError; end
+
+  # raised when trying to connect using uri with incorrect scheme
+  class InvalidScheme < MongoMapperError; end
 
   # raised when document not valid and using !
   class DocumentNotValid < MongoMapperError
@@ -70,13 +68,28 @@ module MongoMapper
     @@config
   end
 
+  # @api private
+  def self.config_for_environment(environment)
+    env = config[environment]
+    return env if env['uri'].blank?
+    
+    uri = URI.parse(env['uri'])
+    raise InvalidScheme.new('must be mongodb') unless uri.scheme == 'mongodb'
+    {
+      'host'     => uri.host,
+      'port'     => uri.port,
+      'database' => uri.path.gsub(/^\//, ''),
+      'username' => uri.user,
+      'password' => uri.password,
+    }
+  end
+
   def self.connect(environment, options={})
     raise 'Set config before connecting. MongoMapper.config = {...}' if config.blank?
-    MongoMapper.connection = Mongo::Connection.new(config[environment]['host'], config[environment]['port'], options)
-    MongoMapper.database = config[environment]['database']
-    if config[environment]['username'].present? && config[environment]['password'].present?
-      MongoMapper.database.authenticate(config[environment]['username'], config[environment]['password'])
-    end
+    env = config_for_environment(environment)
+    MongoMapper.connection = Mongo::Connection.new(env['host'], env['port'], options)
+    MongoMapper.database = env['database']
+    MongoMapper.database.authenticate(env['username'], env['password']) if env['username'] && env['password']
   end
 
   def self.setup(config, environment, options={})
@@ -94,24 +107,10 @@ module MongoMapper
     end
   end
 
-  # @api private
-  def self.use_time_zone?
-    Time.respond_to?(:zone) && Time.zone ? true : false
-  end
-
-  # @api private
-  def self.time_class
-    use_time_zone? ? Time.zone : Time
-  end
-
-  # @api private
-  def self.normalize_object_id(value)
-    value.is_a?(String) ? Mongo::ObjectID.from_string(value) : value
-  end
-  
   autoload :Query,            'mongo_mapper/query'
   autoload :Document,         'mongo_mapper/document'
   autoload :EmbeddedDocument, 'mongo_mapper/embedded_document'
+  autoload :Version,          'mongo_mapper/version'
 end
 
 require 'mongo_mapper/support'

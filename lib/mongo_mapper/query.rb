@@ -65,8 +65,13 @@ module MongoMapper
         conditions.each_pair do |key, value|
           key = normalized_key(key)
 
-          if model.object_id_key?(key) && value.is_a?(String)
-            value = Mongo::ObjectID.from_string(value)
+          if model.object_id_key?(key)
+            case value
+              when String
+                value = Mongo::ObjectID.from_string(value)
+              when Array
+                value.map! { |id| ObjectId.to_mongo(id) }
+            end
           end
 
           if symbol_operator?(key)
@@ -93,7 +98,7 @@ module MongoMapper
       def to_order(field, direction=nil)
         direction ||= 'ASC'
         direction = direction.upcase == 'ASC' ? 1 : -1
-        [field.to_s, direction]
+        [normalized_key(field).to_s, direction]
       end
 
       def normalized_key(field)
@@ -102,8 +107,8 @@ module MongoMapper
 
       def normalized_value(field, value)
         case value
-          when Array
-            modifier?(field) ? value : {'$in' => value}
+          when Array, Set
+            modifier?(field) ? value.to_a : {'$in' => value.to_a}
           when Hash
             to_criteria(value, field)
           when Time

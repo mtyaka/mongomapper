@@ -60,6 +60,10 @@ class SupportTest < Test::Unit::TestCase
       Boolean.to_mongo('0').should be_false
       Boolean.to_mongo(0).should be_false
     end
+    
+    should "be nil for nil" do
+      Boolean.to_mongo(nil).should be_nil
+    end
   end
   
   context "Boolean#from_mongo" do
@@ -71,14 +75,14 @@ class SupportTest < Test::Unit::TestCase
       Boolean.from_mongo(false).should be_false
     end
     
-    should "be false for nil" do
-      Boolean.from_mongo(nil).should be_false
+    should "be nil for nil" do
+      Boolean.to_mongo(nil).should be_nil
     end
   end
   
   context "Date#to_mongo" do
     should "be time if string" do
-      date = Date.to_mongo('10/1/2009')
+      date = Date.to_mongo('2009-10-01')
       date.should == Time.utc(2009, 10, 1)
       date.should == date
       date.month.should == 10
@@ -276,8 +280,12 @@ class SupportTest < Test::Unit::TestCase
   end
   
   context "Time#to_mongo without Time.zone" do
+    setup do
+      Time.zone = nil
+    end
+
     should "be time to milliseconds if string" do
-      Time.to_mongo('2000-01-01 01:01:01.123456').should == Time.local(2000, 1, 1, 1, 1, 1, 123000).utc
+      Time.to_mongo('2000-01-01 01:01:01.123456').to_f.should == Time.local(2000, 1, 1, 1, 1, 1, 123000).utc.to_f
     end
     
     should "be time in utc if time" do
@@ -296,13 +304,13 @@ class SupportTest < Test::Unit::TestCase
   context "Time#to_mongo with Time.zone" do
     should "be time to milliseconds if time" do
       Time.zone = 'Hawaii'
-      Time.to_mongo(Time.zone.local(2009, 8, 15, 14, 0, 0, 123456)).should == Time.utc(2009, 8, 16, 0, 0, 0, 123000)
+      Time.to_mongo(Time.zone.local(2009, 8, 15, 14, 0, 0, 123456)).to_f.should == Time.utc(2009, 8, 16, 0, 0, 0, 123000).to_f
       Time.zone = nil
     end
 
     should "be time to milliseconds if string" do
       Time.zone = 'Hawaii'
-      Time.to_mongo('2009-08-15 14:00:00.123456').should == Time.utc(2009, 8, 16, 0, 0, 0, 123000)
+      Time.to_mongo('2009-08-15 14:00:00.123456').to_f.should == Time.utc(2009, 8, 16, 0, 0, 0, 123000).to_f
       Time.zone = nil
     end
     

@@ -11,7 +11,7 @@ module KeyOverride
 end
 
 class EmbeddedDocumentTest < Test::Unit::TestCase
-  context "" do
+  context "EmbeddedDocuments" do
     setup do
       class ::Grandparent
         include MongoMapper::EmbeddedDocument
@@ -42,7 +42,7 @@ class EmbeddedDocumentTest < Test::Unit::TestCase
       Object.send :remove_const, 'Child'       if defined?(::Child)
       Object.send :remove_const, 'OtherChild'  if defined?(::OtherChild)
     end
-    
+
     context "Including MongoMapper::EmbeddedDocument in a class" do
       setup do
         @klass = EDoc()
@@ -179,17 +179,17 @@ class EmbeddedDocumentTest < Test::Unit::TestCase
 
       context "keys" do
         should "be inherited" do
-          Grandparent.keys.keys.sort.should == ['_id', 'grandparent']
-          Parent.keys.keys.sort.should == ['_id', 'grandparent', 'parent']
-          Child.keys.keys.sort.should  == ['_id', 'child', 'grandparent', 'parent']
+          Grandparent.keys.keys.sort.should == ['_id', '_type', 'grandparent']
+          Parent.keys.keys.sort.should == ['_id', '_type', 'grandparent', 'parent']
+          Child.keys.keys.sort.should  == ['_id', '_type', 'child', 'grandparent', 'parent']
         end
 
         should "propogate to descendants if key added after class definition" do
-          Grandparent.key :_type, String
+          Grandparent.key :foo, String
 
-          Grandparent.keys.keys.sort.should == ['_id', '_type', 'grandparent']
-          Parent.keys.keys.sort.should      == ['_id', '_type', 'grandparent', 'parent']
-          Child.keys.keys.sort.should       == ['_id', '_type', 'child', 'grandparent', 'parent']
+          Grandparent.keys.keys.sort.should == ['_id', '_type', 'foo', 'grandparent']
+          Parent.keys.keys.sort.should      == ['_id', '_type', 'foo', 'grandparent', 'parent']
+          Child.keys.keys.sort.should       == ['_id', '_type', 'child', 'foo', 'grandparent', 'parent']
         end
 
         should "not add anonymous objects to the ancestor tree" do
@@ -221,12 +221,6 @@ class EmbeddedDocumentTest < Test::Unit::TestCase
         end
       end
 
-      should "have to_param that is string representation of id" do
-        doc = @document.new
-        doc.to_param.should == doc.id.to_s
-        doc.to_param.should be_instance_of(String)
-      end
-
       should "have access to class logger" do
         doc = @document.new
         doc.logger.should == @document.logger
@@ -249,34 +243,34 @@ class EmbeddedDocumentTest < Test::Unit::TestCase
 
       should "convert string object id to mongo object id when assigning id with _id object id type" do
         id = Mongo::ObjectID.new
-
         doc = @document.new(:id => id.to_s)
         doc._id.should == id
-        doc.id.should == id
-
+        doc.id.should  == id
         doc = @document.new(:_id => id.to_s)
         doc._id.should == id
-        doc.id.should == id
+        doc.id.should  == id
       end
 
-      context "_root_document" do
+      context "_parent_document" do
         should "default to nil" do
+          @document.new._parent_document.should be_nil
           @document.new._root_document.should be_nil
         end
 
-        should "allow setting when initialized" do
+        should "set _root_document when setting _parent_document" do
           root = Doc().new
-          doc  = @document.new :_root_document => root
-
+          doc  = @document.new(:_parent_document => root)
+          doc._parent_document.should be(root)
           doc._root_document.should be(root)
         end
 
-        should "also be set on many embedded documents" do
-          root  = Doc().new
-          klass = EDoc { many :children }
-          doc   = klass.new(:_root_document => root, :children => [{}])
-
-          doc.children.first._root_document.should == root
+        should "set _root_document when setting _parent_document on embedded many" do
+          root   = Doc().new
+          klass  = EDoc { many :children }
+          parent = klass.new(:_parent_document => root, :children => [{}])
+          child  = parent.children.first
+          child._parent_document.should be(parent)
+          child._root_document.should   be(root)
         end
       end
 
@@ -308,8 +302,8 @@ class EmbeddedDocumentTest < Test::Unit::TestCase
           @klass.new._type.should == 'FooBar'
         end
 
-        should "not change _type if already set" do
-          @klass.new(:_type => 'Foo')._type.should == 'Foo'
+        should "ignore _type attribute and always use class" do
+          @klass.new(:_type => 'Foo')._type.should == 'FooBar'
         end
       end
 
